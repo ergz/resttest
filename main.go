@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	lipgloss "github.com/charmbracelet/lipgloss"
 )
@@ -13,6 +14,9 @@ import (
 const url = "https://google.com"
 
 func initialModel() model {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return model{
 		choices: []apiElement{
 			{"get", "https://google.com", "Google", nil, nil},
@@ -25,8 +29,10 @@ func initialModel() model {
 			{"get", "/api/products/{id}", "get product by id", []string{"id"}, nil},
 			{"put", "/api/products/{id}", "update product by id", []string{"id"}, nil},
 		},
-		selected: make(map[int]struct{}),
-		response: "",
+		selected:  make(map[int]struct{}),
+		response:  "",
+		spinner:   s,
+		isLoading: false,
 	}
 }
 
@@ -46,6 +52,8 @@ type model struct {
 	err               error            // error
 	requestInProgress bool             // is a request in progress?
 	response          string
+	spinner           spinner.Model
+	isLoading         bool
 }
 
 type apiResponse struct {
@@ -113,6 +121,7 @@ func makeRequest(endpoint string) tea.Cmd {
 var selectedEndpoint apiElement
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -127,19 +136,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "enter", " ":
-			m.requestInProgress = true
+			m.isLoading = true
 			selectedEndpoint = m.choices[m.cursor]
-			return m, makeRequest(selectedEndpoint.url)
+			return m, tea.Batch(
+				makeRequest(selectedEndpoint.url),
+				m.spinner.Tick, // add spinner animation
+			)
 		}
 	case apiResponse:
 		m.requestInProgress = false
+		m.isLoading = false
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
-			m.response = fmt.Sprintf("%s Responded with [%d] - %s", selectedEndpoint.url, msg.status, msg.data)
+			emj := ""
+			if msg.status >= 200 && msg.status <= 299 {
+				emj = "✅"
+			} else {
+				emj = "❌"
+			}
+			m.response = fmt.Sprintf("%s %s Responded with [%d] - %s", emj, selectedEndpoint.url, msg.status, msg.data)
 		}
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
-	return m, nil
+	return m, cmd
 }
 
 func (m model) View() string {
@@ -155,7 +178,11 @@ func (m model) View() string {
 	for i, choice := range m.choices {
 		cursor := " "
 		if m.cursor == i {
-			cursor = ">"
+			if m.isLoading {
+				cursor = m.spinner.View() // show spinner instead of ">"
+			} else {
+				cursor = ">"
+			}
 			renderedUrl = selectedItemStyle.Render(choice.url)
 			renderedName = selectedItemStyle.Render(choice.name)
 			// rightVal = choice.name
