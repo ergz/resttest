@@ -16,8 +16,8 @@ const url = "https://google.com"
 func initialModel() model {
 	return model{
 		choices: []apiElement{
-			{"get", "/api/users", "get users", nil, nil},
-			{"post", "/api/users", "create user", nil, nil},
+			{"get", "www.google.com", "Google", nil, nil},
+			{"get", "www.facebook.com", "Facebook", nil, nil},
 			{"get", "/api/users/{id}", "get user by id", []string{"id"}, nil},
 			{"put", "/api/users/{id}", "update user by id", []string{"id"}, nil},
 			{"delete", "/api/users/{id}", "delete user by id", []string{"id"}, nil},
@@ -27,6 +27,7 @@ func initialModel() model {
 			{"put", "/api/products/{id}", "update product by id", []string{"id"}, nil},
 		},
 		selected: make(map[int]struct{}),
+		response: "",
 	}
 }
 
@@ -45,11 +46,13 @@ type model struct {
 	status            int              // the status response for the api
 	err               error            // error
 	requestInProgress bool             // is a request in progress?
+	response          string
 }
 
 type apiResponse struct {
-	status int
-	err    error
+	status  int
+	message string
+	err     error
 }
 
 var (
@@ -96,24 +99,20 @@ func (m model) Init() tea.Cmd {
 
 func makeRequest(endpoint string) tea.Cmd {
 	return func() tea.Msg {
-		type responseMessage struct {
-			data string
-			err  error
-		}
 
 		resp, err := http.Get(endpoint)
 		if err != nil {
-			return responseMessage{"", err}
+			return apiResponse{404, "", nil}
 		}
 
 		defer resp.Body.Close()
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return responseMessage{"", err}
+			return apiResponse{404, "", err}
 		}
 
-		return responseMessage{string(body), nil}
+		return apiResponse{resp.StatusCode, string(body), nil}
 	}
 }
 
@@ -133,7 +132,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", " ":
 			m.requestInProgress = true
+			selectedEndpoint := m.choices[m.cursor]
+			return m, makeRequest(selectedEndpoint.url)
 		}
+	case apiResponse:
+		m.requestInProgress = false
+		m.response = msg.message
 	}
 	return m, nil
 }
@@ -172,11 +176,6 @@ func (m model) View() string {
 
 	if selectedChoice.paths != nil {
 		renderedNameDetails += " [id]"
-	}
-
-	if m.inProgress {
-		renderedNameDetails = itemActionStyle.Render(renderedNameDetails)
-		m.inProgress = false
 	}
 
 	leftAppContent = leftAppStyle.Render(s)
