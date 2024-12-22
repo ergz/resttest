@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	lipgloss "github.com/charmbracelet/lipgloss"
@@ -16,8 +15,8 @@ const url = "https://google.com"
 func initialModel() model {
 	return model{
 		choices: []apiElement{
-			{"get", "www.google.com", "Google", nil, nil},
-			{"get", "www.facebook.com", "Facebook", nil, nil},
+			{"get", "https://google.com", "Google", nil, nil},
+			{"get", "https://facebook.com", "Facebook", nil, nil},
 			{"get", "/api/users/{id}", "get user by id", []string{"id"}, nil},
 			{"put", "/api/users/{id}", "update user by id", []string{"id"}, nil},
 			{"delete", "/api/users/{id}", "delete user by id", []string{"id"}, nil},
@@ -50,9 +49,9 @@ type model struct {
 }
 
 type apiResponse struct {
-	status  int
-	message string
-	err     error
+	status int
+	data   string
+	err    error
 }
 
 var (
@@ -98,14 +97,20 @@ func makeRequest(endpoint string) tea.Cmd {
 
 		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		_, err = io.ReadAll(resp.Body)
 		if err != nil {
 			return apiResponse{404, "", err}
 		}
 
-		return apiResponse{resp.StatusCode, string(body), nil}
+		return apiResponse{
+			status: resp.StatusCode,
+			data:   "looks good!",
+			err:    nil,
+		}
 	}
 }
+
+var selectedEndpoint apiElement
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -123,12 +128,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", " ":
 			m.requestInProgress = true
-			selectedEndpoint := m.choices[m.cursor]
+			selectedEndpoint = m.choices[m.cursor]
 			return m, makeRequest(selectedEndpoint.url)
 		}
 	case apiResponse:
 		m.requestInProgress = false
-		m.response = msg.message
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.response = fmt.Sprintf("%s Responded with [%d] - %s", selectedEndpoint.url, msg.status, msg.data)
+		}
 	}
 	return m, nil
 }
