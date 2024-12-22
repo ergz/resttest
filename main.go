@@ -63,7 +63,7 @@ var (
 			BorderForeground(lipgloss.Color("#cf6400")).
 			Width(50).
 			Padding(1).
-			Margin(0)
+			Margin(0, 0, 0, 0)
 
 	rightAppStyle = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
@@ -72,26 +72,17 @@ var (
 			Height(1).
 			Margin(0)
 
+	responseAreaStyle = lipgloss.NewStyle().
+				Border(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color("#cf6400")).
+				Width(50).
+				Padding(1).
+				Margin(0)
+
 	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF7F")).Bold(true)
 	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#828282"))
 	itemActionStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e33939")).Blink(true)
 )
-
-func checkServer() tea.Msg {
-	c := &http.Client{Timeout: 10 * time.Second}
-	response, err := c.Get(url)
-
-	if err != nil {
-		return errMsg{err}
-	}
-
-	return statusMsg(response.StatusCode)
-}
-
-type statusMsg int
-type errMsg struct{ err error }
-
-func (e errMsg) Error() string { return e.err.Error() }
 
 func (m model) Init() tea.Cmd {
 	return nil
@@ -147,6 +138,7 @@ func (m model) View() string {
 	// rightVal := ""
 	var leftAppContent string
 	var rightAppContent string
+	var reponseAreaContent string
 
 	var renderedUrl string
 	var renderedName string
@@ -180,11 +172,15 @@ func (m model) View() string {
 
 	leftAppContent = leftAppStyle.Render(s)
 	rightAppContent = rightAppStyle.Render(renderedNameDetails)
+	reponseAreaContent = responseAreaStyle.Render(m.response)
 
 	render := lipgloss.JoinVertical(
 		lipgloss.Top,
 		titleStyle.Render("Resttest"),
-		lipgloss.JoinHorizontal(lipgloss.Top, leftAppContent, rightAppContent),
+		lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			leftAppContent,
+			lipgloss.JoinVertical(lipgloss.Top, rightAppContent, reponseAreaContent)),
 	)
 	return render
 }
