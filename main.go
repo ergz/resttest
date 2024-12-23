@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,20 +21,16 @@ func initialModel() model {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return model{
 		choices: []apiElement{
-			{"get", "https://google.com", "Google", nil, nil},
-			{"get", "https://facebook.com", "Facebook", nil, nil},
-			{"get", "/api/users/{id}", "get user by id", []string{"id"}, nil},
-			{"put", "/api/users/{id}", "update user by id", []string{"id"}, nil},
-			{"delete", "/api/users/{id}", "delete user by id", []string{"id"}, nil},
-			{"get", "/api/products", "get products", nil, nil},
-			{"post", "/api/products", "create product", nil, nil},
-			{"get", "/api/products/{id}", "get product by id", []string{"id"}, nil},
-			{"put", "/api/products/{id}", "update product by id", []string{"id"}, nil},
+			{"get", "https://jsonplaceholder.typicode.com/todos/{id}", "get todo by id", []string{"id"}, nil, nil},
+			{"post", "https://httpbin.org/get", "create new location", []string{"id"}, nil, nil},
+			{"get", "https://httpbin.org/get", "get all groups", []string{"id"}, nil, nil},
+			{"get", "https://httpbins.org/get", "get admins", []string{"id"}, nil, nil},
 		},
-		selected:  make(map[int]struct{}),
-		response:  "",
-		spinner:   s,
-		isLoading: false,
+		selected:     make(map[int]struct{}),
+		response:     "",
+		spinner:      s,
+		isLoading:    false,
+		currentFocus: 0,
 	}
 }
 
@@ -42,6 +40,7 @@ type apiElement struct {
 	name        string
 	paths       []string
 	queryParams map[string]string
+	body        interface{}
 }
 
 type model struct {
@@ -54,6 +53,8 @@ type model struct {
 	response          string
 	spinner           spinner.Model
 	isLoading         bool
+	responseTime      time.Duration
+	currentFocus      int
 }
 
 type apiResponse struct {
@@ -68,21 +69,19 @@ var (
 	leftAppStyle = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#cf6400")).
-			Width(50).
 			Padding(1).
 			Margin(0, 0, 0, 0)
 
 	rightAppStyle = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#cf6400")).
-			Width(50).
 			Height(1).
 			Margin(0)
 
 	responseAreaStyle = lipgloss.NewStyle().
 				Border(lipgloss.ThickBorder()).
 				BorderForeground(lipgloss.Color("#cf6400")).
-				Width(50).
+				Width(70).
 				Padding(1).
 				Margin(0)
 
@@ -95,30 +94,39 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func makeRequest(endpoint string) tea.Cmd {
+func makeRequest(endpoint string, method string) tea.Cmd {
 	return func() tea.Msg {
 
-		resp, err := http.Get(endpoint)
+		var resp *http.Response
+		var err error
+
+		if method == "get" {
+			resp, err = http.Get(endpoint)
+		} else if method == "post" {
+			resp, err = http.Get(endpoint)
+		}
+
 		if err != nil {
 			return apiResponse{404, "", nil}
 		}
 
 		defer resp.Body.Close()
 
-		_, err = io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return apiResponse{404, "", err}
 		}
 
 		return apiResponse{
 			status: resp.StatusCode,
-			data:   "looks good!",
+			data:   string(body),
 			err:    nil,
 		}
 	}
 }
 
 var selectedEndpoint apiElement
+var starttime time.Time
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -137,13 +145,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", " ":
 			m.isLoading = true
+			starttime = time.Now()
 			selectedEndpoint = m.choices[m.cursor]
 			return m, tea.Batch(
-				makeRequest(selectedEndpoint.url),
+				makeRequest(selectedEndpoint.url, selectedEndpoint.method),
 				m.spinner.Tick, // add spinner animation
 			)
+		case "tab":
+			m.currentFocus = (m.currentFocus + 1) % 3
 		}
 	case apiResponse:
+		m.responseTime = time.Since(starttime)
 		m.requestInProgress = false
 		m.isLoading = false
 		if msg.err != nil {
@@ -155,7 +167,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				emj = "❌"
 			}
-			m.response = fmt.Sprintf("%s %s Responded with [%d] - %s", emj, selectedEndpoint.url, msg.status, msg.data)
+			m.response = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
+				emj,
+				selectedEndpoint.url,
+				msg.status,
+				m.responseTime.Seconds(),
+				msg.data,
+			)
 		}
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -173,7 +191,8 @@ func (m model) View() string {
 	var reponseAreaContent string
 
 	var renderedUrl string
-	var renderedName string
+	var renderedMethod string
+	// var renderedName string
 	// create the choices ui
 	for i, choice := range m.choices {
 		cursor := " "
@@ -184,15 +203,17 @@ func (m model) View() string {
 				cursor = ">"
 			}
 			renderedUrl = selectedItemStyle.Render(choice.url)
-			renderedName = selectedItemStyle.Render(choice.name)
+			renderedMethod = selectedItemStyle.Render(strings.ToUpper(choice.method))
+			// renderedName = selectedItemStyle.Render(choice.name)
 			// rightVal = choice.name
 
 		} else {
 			renderedUrl = itemStyle.Render(choice.url)
-			renderedName = itemStyle.Render(choice.name)
+			renderedMethod = itemStyle.Render(strings.ToUpper(choice.method))
+			// renderedName = itemStyle.Render(choice.name)
 		}
 
-		s += fmt.Sprintf("%s %s %s\n", cursor, renderedName, renderedUrl)
+		s += fmt.Sprintf("%s %-7s %s\n", cursor, renderedMethod, renderedUrl)
 
 	}
 
