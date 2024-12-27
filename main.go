@@ -217,7 +217,7 @@ func (m model) View() string {
 
 	}
 
-	helpText := "\n\nctrl+enter to send request and q to quit"
+	helpText := "\n\n[enter] to send request and [q] to quit"
 	s += helpText
 
 	selectedChoice := m.choices[m.cursor]
