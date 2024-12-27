@@ -128,7 +128,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func makeRequest(endpoint string, method string) tea.Cmd {
+func makeRequest(endpoint string, method string, rs *requestState) tea.Cmd {
 	startTime := time.Now()
 	return func() tea.Msg {
 
@@ -152,12 +152,15 @@ func makeRequest(endpoint string, method string) tea.Cmd {
 			return apiResponse{statusCode: 404, data: "", error: nil, responseTime: 0}
 		}
 
-		return apiResponse{
+		resp := apiResponse{
 			statusCode:   resp.StatusCode,
 			data:         string(body),
 			error:        nil,
 			responseTime: time.Since(startTime),
 		}
+
+		return resp
+
 	}
 }
 
@@ -181,6 +184,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", " ":
 			m.requestState.inProgress = true
 			selectedEndpoint = m.endpoints[m.ui.cursor]
+			response := makeRequest(selectedEndpoint.url, selectedEndpoint.method)
+			m.requestState.lastResponse = response
 			return m, tea.Batch(
 				makeRequest(selectedEndpoint.url, selectedEndpoint.method),
 				m.requestState.spinner.Tick, // add spinner animation
@@ -189,11 +194,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ui.currentFocus = (m.ui.currentFocus + 1) % 3
 		}
 	case apiResponse:
-		m.responseTime = time.Since(starttime)
-		m.requestInProgress = false
-		m.isLoading = false
-		if msg.err != nil {
-			m.err = msg.err
+		m.requestState.inProgress = false
+		m.ui.isLoading = false
+		if msg.error != nil {
+			m.requestState.lastResponse.error = msg.error
 		} else {
 			emj := ""
 			if msg.status >= 200 && msg.status <= 299 {
