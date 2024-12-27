@@ -19,19 +19,73 @@ func initialModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	return model{
-		choices: []apiElement{
-			{"get", "https://jsonplaceholder.typicode.com/todos/{id}", "get todo by id", []string{"id"}, nil, nil},
-			{"post", "https://httpbin.org/get", "create new location", []string{"id"}, nil, nil},
-			{"get", "https://httpbin.org/get", "get all groups", []string{"id"}, nil, nil},
-			{"get", "https://httpbins.org/get", "get admins", []string{"id"}, nil, nil},
+	initial_requests := []apiRequest{
+		{
+			method:  "GET",
+			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
+			name:    "get all todos",
+			paths:   nil,
+			qparams: nil,
+			body:    nil,
 		},
-		selected:     make(map[int]struct{}),
-		response:     "",
-		spinner:      s,
-		isLoading:    false,
-		currentFocus: 0,
+		{
+			method:  "GET",
+			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
+			name:    "get all todos",
+			paths:   nil,
+			qparams: nil,
+			body:    nil,
+		},
+		{
+			method:  "GET",
+			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
+			name:    "get all todos",
+			paths:   nil,
+			qparams: nil,
+			body:    nil,
+		},
 	}
+
+	return model{
+		endpoints:    initial_requests,
+		requestState: requestState{false, nil, s},
+		ui:           uiState{currentFocus: 1, selectedIndex: 1, isLoading: false},
+	}
+}
+
+type apiRequest struct {
+	method  string
+	url     string
+	name    string
+	paths   []string
+	qparams map[string]string
+	body    interface{}
+}
+
+type apiResponse struct {
+	statusCode   int
+	data         string
+	error        error
+	responseTime time.Duration
+}
+
+type uiState struct {
+	currentFocus  int
+	selectedIndex int
+	isLoading     bool
+	cursor        int
+}
+
+type requestState struct {
+	inProgress   bool
+	lastResponse *apiResponse
+	spinner      spinner.Model
+}
+
+type model struct {
+	endpoints    []apiRequest
+	requestState requestState
+	ui           uiState
 }
 
 type apiElement struct {
@@ -41,26 +95,6 @@ type apiElement struct {
 	paths       []string
 	queryParams map[string]string
 	body        interface{}
-}
-
-type model struct {
-	choices           []apiElement     // the api choices
-	cursor            int              // the current selected item
-	selected          map[int]struct{} // currently selected choice
-	status            int              // the status response for the api
-	err               error            // error
-	requestInProgress bool             // is a request in progress?
-	response          string
-	spinner           spinner.Model
-	isLoading         bool
-	responseTime      time.Duration
-	currentFocus      int
-}
-
-type apiResponse struct {
-	status int
-	data   string
-	err    error
 }
 
 var (
@@ -95,6 +129,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func makeRequest(endpoint string, method string) tea.Cmd {
+	startTime := time.Now()
 	return func() tea.Msg {
 
 		var resp *http.Response
@@ -107,26 +142,26 @@ func makeRequest(endpoint string, method string) tea.Cmd {
 		}
 
 		if err != nil {
-			return apiResponse{404, "", nil}
+			return apiResponse{statusCode: 404, data: "", error: nil, responseTime: 0}
 		}
 
 		defer resp.Body.Close()
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return apiResponse{404, "", err}
+			return apiResponse{statusCode: 404, data: "", error: nil, responseTime: 0}
 		}
 
 		return apiResponse{
-			status: resp.StatusCode,
-			data:   string(body),
-			err:    nil,
+			statusCode:   resp.StatusCode,
+			data:         string(body),
+			error:        nil,
+			responseTime: time.Since(startTime),
 		}
 	}
 }
 
-var selectedEndpoint apiElement
-var starttime time.Time
+var selectedEndpoint apiRequest
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -136,23 +171,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q":
 			return m, tea.Quit
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+			if m.ui.cursor > 0 {
+				m.ui.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
+			if m.ui.cursor < len(m.endpoints)-1 {
+				m.ui.cursor++
 			}
 		case "enter", " ":
-			m.isLoading = true
-			starttime = time.Now()
-			selectedEndpoint = m.choices[m.cursor]
+			m.requestState.inProgress = true
+			selectedEndpoint = m.endpoints[m.ui.cursor]
 			return m, tea.Batch(
 				makeRequest(selectedEndpoint.url, selectedEndpoint.method),
-				m.spinner.Tick, // add spinner animation
+				m.requestState.spinner.Tick, // add spinner animation
 			)
-		case "tab":
-			m.currentFocus = (m.currentFocus + 1) % 3
+		case "tab": // switch bewteen the three sections in the ui
+			m.ui.currentFocus = (m.ui.currentFocus + 1) % 3
 		}
 	case apiResponse:
 		m.responseTime = time.Since(starttime)
