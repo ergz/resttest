@@ -112,6 +112,14 @@ var (
 				Padding(1).
 				Margin(0)
 
+	defaultBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color("#cf6400")).
+				Padding(1).Margin(0)
+
+	focusedBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color("#00ff7f")).
+				Padding(1).Margin(0)
+
 	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF7F")).Bold(true)
 	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#828282"))
 	itemActionStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e33939")).Blink(true)
@@ -298,11 +306,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	s := ""
-	// rightVal := ""
-	var leftAppContent string
-	var rightAppContent string
-	var reponseAreaContent string
+
+	var panel0, panel1, panel2 string
+	var panel0_content strings.Builder
 
 	var renderedUrl string
 	var renderedMethod string
@@ -327,31 +333,39 @@ func (m model) View() string {
 			// renderedName = itemStyle.Render(choice.name)
 		}
 
-		s += fmt.Sprintf("%s %-7s %s\n", cursor, renderedMethod, renderedUrl)
+		panel0_content.WriteString(fmt.Sprintf("%s %-7s %s\n", cursor, renderedMethod, renderedUrl))
 
 	}
 
 	helpText := "\n\n[enter] to send request and [q] to quit"
-	s += helpText
+	panel0_content.WriteString(helpText)
 
-	selectedChoice := m.endpoints[m.ui.cursor]
-	renderedNameDetails := selectedChoice.name
-
-	if selectedChoice.paths != nil {
-		renderedNameDetails += " [id]"
+	if m.ui.currentFocus == 0 {
+		panel0 = focusedBorderStyle.Render(panel0_content.String())
+	} else {
+		panel0 = defaultBorderStyle.Render(panel0_content.String())
 	}
 
-	leftAppContent = leftAppStyle.Render(s)
-	rightAppContent = rightAppStyle.Render(renderedNameDetails)
-	reponseAreaContent = responseAreaStyle.Render(m.ui.respmsg)
+	selectedEndpoint := m.endpoints[m.ui.cursor]
+	if m.ui.currentFocus == 1 {
+		panel1 = focusedBorderStyle.Render(selectedEndpoint.name)
+	} else {
+		panel1 = defaultBorderStyle.Render(selectedEndpoint.name)
+	}
+
+	if m.ui.currentFocus == 2 {
+		panel2 = focusedBorderStyle.Render(m.ui.respmsg)
+	} else {
+		panel2 = defaultBorderStyle.Render(m.ui.respmsg)
+	}
 
 	render := lipgloss.JoinVertical(
 		lipgloss.Top,
 		titleStyle.Render("Resttest"),
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			leftAppContent,
-			lipgloss.JoinVertical(lipgloss.Top, rightAppContent, reponseAreaContent)),
+			panel0,
+			lipgloss.JoinVertical(lipgloss.Top, panel1, panel2)),
 	)
 	return render
 }
