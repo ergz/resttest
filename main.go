@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -22,7 +23,7 @@ func initialModel() model {
 	initial_requests := []apiRequest{
 		{
 			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
+			url:     "https://jsonplaceholder.typicode.com/todos/1",
 			name:    "get all todos",
 			paths:   nil,
 			qparams: nil,
@@ -30,16 +31,16 @@ func initialModel() model {
 		},
 		{
 			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
-			name:    "get all todos",
+			url:     "https://jsonplaceholder.typicode.com/todos/101",
+			name:    "get all todos 2",
 			paths:   nil,
 			qparams: nil,
 			body:    nil,
 		},
 		{
 			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/{id}",
-			name:    "get all todos",
+			url:     "https://jsonplaceholder.typicode.com/todos/22",
+			name:    "get all todos 3",
 			paths:   nil,
 			qparams: nil,
 			body:    nil,
@@ -48,8 +49,8 @@ func initialModel() model {
 
 	return model{
 		endpoints:    initial_requests,
-		requestState: requestState{false, nil, s},
-		ui:           uiState{currentFocus: 1, selectedIndex: 1, isLoading: false},
+		requestState: requestState{inProgress: false, lastResponse: globalResponse, spinner: s},
+		ui:           uiState{currentFocus: 1, selectedIndex: 1},
 	}
 }
 
@@ -72,8 +73,8 @@ type apiResponse struct {
 type uiState struct {
 	currentFocus  int
 	selectedIndex int
-	isLoading     bool
 	cursor        int
+	respmsg       string
 }
 
 type requestState struct {
@@ -124,42 +125,73 @@ var (
 	itemActionStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#e33939")).Blink(true)
 )
 
+// TODO: idk if this really needs to be fixed, I think a global response is fine since I am only
+// ever going to have one of these
+var globalResponse = &apiResponse{}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func makeRequest(endpoint string, method string, rs *requestState) tea.Cmd {
-	startTime := time.Now()
+func makeRequest(endpoint string, method string, gresp *apiResponse) tea.Cmd {
+
 	return func() tea.Msg {
 
 		var resp *http.Response
 		var err error
 
-		if method == "get" {
+		thisReponse := apiResponse{
+			statusCode:   200,
+			data:         "",
+			error:        nil,
+			responseTime: 0,
+		}
+
+		log.Println("DEBUG START------------------")
+		log.Printf("endpoint: %s", endpoint)
+		log.Printf("method: %s", method)
+		log.Println("DEBUG START------------------")
+
+		startTime := time.Now()
+		if strings.ToLower(method) == "get" {
 			resp, err = http.Get(endpoint)
-		} else if method == "post" {
+		} else if strings.ToLower(endpoint) == "post" {
 			resp, err = http.Get(endpoint)
 		}
+
+		if resp == nil {
+
+			log.Printf("the value of the endpoint: %s", endpoint)
+			log.Printf("made it this far ---------------")
+
+		}
+		defer resp.Body.Close()
 
 		if err != nil {
-			return apiResponse{statusCode: 404, data: "", error: nil, responseTime: 0}
+			thisReponse.statusCode = 404
+			thisReponse.error = err
+			*gresp = thisReponse
+			return thisReponse
 		}
-
-		defer resp.Body.Close()
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return apiResponse{statusCode: 404, data: "", error: nil, responseTime: 0}
+			thisReponse.statusCode = 404
+			thisReponse.error = err
+			*gresp = thisReponse
+			return thisReponse
 		}
 
-		resp := apiResponse{
+		thisReponse = apiResponse{
 			statusCode:   resp.StatusCode,
 			data:         string(body),
 			error:        nil,
 			responseTime: time.Since(startTime),
 		}
 
-		return resp
+		*gresp = thisReponse
+
+		return thisReponse
 
 	}
 }
@@ -169,10 +201,14 @@ var selectedEndpoint apiRequest
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+
+	// handle keyboard ----------------------------
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q":
 			return m, tea.Quit
+
+			// navigation
 		case "up", "k":
 			if m.ui.cursor > 0 {
 				m.ui.cursor--
@@ -181,41 +217,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.ui.cursor < len(m.endpoints)-1 {
 				m.ui.cursor++
 			}
-		case "enter", " ":
-			m.requestState.inProgress = true
-			selectedEndpoint = m.endpoints[m.ui.cursor]
-			response := makeRequest(selectedEndpoint.url, selectedEndpoint.method)
-			m.requestState.lastResponse = response
-			return m, tea.Batch(
-				makeRequest(selectedEndpoint.url, selectedEndpoint.method),
-				m.requestState.spinner.Tick, // add spinner animation
-			)
 		case "tab": // switch bewteen the three sections in the ui
 			m.ui.currentFocus = (m.ui.currentFocus + 1) % 3
+			// user submits a request
+		case "enter", " ":
+			if m.requestState.inProgress == false {
+				m.requestState.inProgress = true
+				selectedEndpoint = m.endpoints[m.ui.cursor]
+				return m, tea.Batch(
+					makeRequest(selectedEndpoint.url, selectedEndpoint.method, globalResponse),
+					m.requestState.spinner.Tick, // add spinner animation
+				)
+			}
 		}
+
+		// handle when api response ----------------
 	case apiResponse:
 		m.requestState.inProgress = false
-		m.ui.isLoading = false
 		if msg.error != nil {
 			m.requestState.lastResponse.error = msg.error
 		} else {
 			emj := ""
-			if msg.status >= 200 && msg.status <= 299 {
+			if msg.statusCode >= 200 && msg.statusCode <= 299 {
 				emj = "✅"
 			} else {
 				emj = "❌"
 			}
-			m.response = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
+			m.ui.respmsg = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
 				emj,
 				selectedEndpoint.url,
-				msg.status,
-				m.responseTime.Seconds(),
+				msg.statusCode,
+				msg.responseTime.Seconds(),
 				msg.data,
 			)
 		}
 	case spinner.TickMsg:
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m.requestState.spinner, cmd = m.requestState.spinner.Update(msg)
 		return m, cmd
 	}
 	return m, cmd
@@ -232,11 +270,11 @@ func (m model) View() string {
 	var renderedMethod string
 	// var renderedName string
 	// create the choices ui
-	for i, choice := range m.choices {
+	for i, choice := range m.endpoints {
 		cursor := " "
-		if m.cursor == i {
-			if m.isLoading {
-				cursor = m.spinner.View() // show spinner instead of ">"
+		if m.ui.cursor == i {
+			if m.requestState.inProgress {
+				cursor = m.requestState.spinner.View() // show spinner instead of ">"
 			} else {
 				cursor = ">"
 			}
@@ -258,7 +296,7 @@ func (m model) View() string {
 	helpText := "\n\n[enter] to send request and [q] to quit"
 	s += helpText
 
-	selectedChoice := m.choices[m.cursor]
+	selectedChoice := m.endpoints[m.ui.cursor]
 	renderedNameDetails := selectedChoice.name
 
 	if selectedChoice.paths != nil {
@@ -267,7 +305,7 @@ func (m model) View() string {
 
 	leftAppContent = leftAppStyle.Render(s)
 	rightAppContent = rightAppStyle.Render(renderedNameDetails)
-	reponseAreaContent = responseAreaStyle.Render(m.response)
+	reponseAreaContent = responseAreaStyle.Render(m.ui.respmsg)
 
 	render := lipgloss.JoinVertical(
 		lipgloss.Top,
@@ -281,9 +319,16 @@ func (m model) View() string {
 }
 
 func main() {
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	f, _ := os.Create("debug.log")
+	log.SetOutput(f)
+	defer f.Close()
+
+	// Then in your code
+	m := initialModel()
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("there was an error!")
+		fmt.Printf("%s", err)
 		os.Exit(1)
 	}
 
