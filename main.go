@@ -76,6 +76,8 @@ type uiState struct {
 	cursor        int
 	respmsg       string
 	tabCount      int
+	width         int
+	height        int
 }
 
 type requestState struct {
@@ -91,34 +93,15 @@ type model struct {
 }
 
 var (
-	titleStyle = lipgloss.NewStyle().Bold(true).Underline(true).Align(lipgloss.Center).Width(100)
-	// Styles for the panes
-	leftAppStyle = lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color("#cf6400")).
-			Padding(1).
-			Margin(0, 0, 0, 0)
-
-	rightAppStyle = lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color("#cf6400")).
-			Height(1).
-			Margin(0)
-
-	responseAreaStyle = lipgloss.NewStyle().
-				Border(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color("#cf6400")).
-				Width(70).
-				Padding(1).
-				Margin(0)
+	titleStyle = lipgloss.NewStyle().Bold(true).Underline(true).Align(lipgloss.Center)
 
 	defaultBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
 				BorderForeground(lipgloss.Color("#cf6400")).
-				Padding(1).Margin(0)
+				Padding(1)
 
 	focusedBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
 				BorderForeground(lipgloss.Color("#00ff7f")).
-				Padding(1).Margin(0)
+				Padding(1)
 
 	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF7F")).Bold(true)
 	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#828282"))
@@ -266,6 +249,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.requestState.spinner, cmd = m.requestState.spinner.Update(msg)
 			return m, cmd
 
+		case tea.WindowSizeMsg:
+			m.ui.width = msg.Width
+			m.ui.height = msg.Height
+			return m, nil
+
 		}
 
 	} else if m.ui.currentFocus == 1 {
@@ -282,6 +270,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 			}
+		case tea.WindowSizeMsg:
+			m.ui.width = msg.Width
+			m.ui.height = msg.Height
+			return m, nil
 		}
 
 	} else {
@@ -298,6 +290,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 			}
+		case tea.WindowSizeMsg:
+			m.ui.width = msg.Width
+			m.ui.height = msg.Height
+			return m, nil
 		}
 
 	}
@@ -306,6 +302,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+
+	w, h := m.ui.width, m.ui.height
+
+	leftWidth := int(float64(w) * 0.6) // 60% of width
+	rightWidth := w - leftWidth        // remaining 40%
+	rightHeight := h / 2               // split right side in half vertically
+
+	// Create styles for each section with specific dimensions
+	leftStyle := lipgloss.NewStyle().
+		Width(leftWidth).
+		Height(h)
+
+	rightTopStyle := lipgloss.NewStyle().
+		Width(rightWidth).
+		Height(rightHeight)
+
+	rightBottomStyle := lipgloss.NewStyle().
+		Width(rightWidth).
+		Height(rightHeight)
 
 	var panel0, panel1, panel2 string
 	var panel0_content strings.Builder
@@ -341,22 +356,22 @@ func (m model) View() string {
 	panel0_content.WriteString(helpText)
 
 	if m.ui.currentFocus == 0 {
-		panel0 = focusedBorderStyle.Render(panel0_content.String())
+		panel0 = leftStyle.Render(focusedBorderStyle.Height(h).Render(panel0_content.String()))
 	} else {
-		panel0 = defaultBorderStyle.Render(panel0_content.String())
+		panel0 = leftStyle.Render(defaultBorderStyle.Height(h).Render(panel0_content.String()))
 	}
 
 	selectedEndpoint := m.endpoints[m.ui.cursor]
 	if m.ui.currentFocus == 1 {
-		panel1 = focusedBorderStyle.Render(selectedEndpoint.name)
+		panel1 = rightTopStyle.Render(focusedBorderStyle.Render(selectedEndpoint.name))
 	} else {
-		panel1 = defaultBorderStyle.Render(selectedEndpoint.name)
+		panel1 = rightTopStyle.Render(defaultBorderStyle.Render(selectedEndpoint.name))
 	}
 
 	if m.ui.currentFocus == 2 {
-		panel2 = focusedBorderStyle.Render(m.ui.respmsg)
+		panel2 = rightBottomStyle.Render(focusedBorderStyle.Render(m.ui.respmsg))
 	} else {
-		panel2 = defaultBorderStyle.Render(m.ui.respmsg)
+		panel2 = rightBottomStyle.Render(defaultBorderStyle.Render(m.ui.respmsg))
 	}
 
 	render := lipgloss.JoinVertical(
