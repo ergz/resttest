@@ -25,7 +25,7 @@ func initialModel() model {
 			method:  "GET",
 			url:     "https://jsonplaceholder.typicode.com/todos/1",
 			name:    "get all todos",
-			paths:   nil,
+			paths:   []string{"todos"},
 			qparams: nil,
 			body:    nil,
 		},
@@ -50,7 +50,7 @@ func initialModel() model {
 	return model{
 		endpoints:    initial_requests,
 		requestState: requestState{inProgress: false, lastResponse: globalResponse, spinner: s},
-		ui:           uiState{currentFocus: 1, selectedIndex: 1},
+		ui:           uiState{currentFocus: 0, selectedIndex: 1, tabCount: 3},
 	}
 }
 
@@ -75,6 +75,7 @@ type uiState struct {
 	selectedIndex int
 	cursor        int
 	respmsg       string
+	tabCount      int
 }
 
 type requestState struct {
@@ -87,15 +88,6 @@ type model struct {
 	endpoints    []apiRequest
 	requestState requestState
 	ui           uiState
-}
-
-type apiElement struct {
-	method      string
-	url         string
-	name        string
-	paths       []string
-	queryParams map[string]string
-	body        interface{}
 }
 
 var (
@@ -131,6 +123,16 @@ var globalResponse = &apiResponse{}
 
 func (m model) Init() tea.Cmd {
 	return nil
+}
+
+// TODO: implement parse request, this will read in the data from a file to populate
+func parseRequest(line string) {
+
+}
+
+// TODO: implenent a function to construc actual url we hit with the tool
+func constructRequest(endpoint string, paths []string, qparams map[string]string) {
+
 }
 
 func makeRequest(endpoint string, method string, gresp *apiResponse) tea.Cmd {
@@ -200,62 +202,98 @@ var selectedEndpoint apiRequest
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	switch msg := msg.(type) {
+	if m.ui.currentFocus == 0 {
+		// handle keys when user in the endpoints sections
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "up", "k":
+				if m.ui.cursor > 0 {
+					m.ui.cursor--
+				}
+			case "down", "j":
+				if m.ui.cursor < len(m.endpoints)-1 {
+					m.ui.cursor++
+				}
+			case "tab":
+				if m.ui.currentFocus < m.ui.tabCount-1 {
+					m.ui.currentFocus++
+				} else if m.ui.currentFocus == m.ui.tabCount-1 {
+					m.ui.currentFocus = 0
+				}
+			case "enter", " ":
+				if m.requestState.inProgress == false {
+					m.requestState.inProgress = true
+					selectedEndpoint = m.endpoints[m.ui.cursor]
+					return m, tea.Batch(
+						makeRequest(selectedEndpoint.url, selectedEndpoint.method, globalResponse),
+						m.requestState.spinner.Tick, // add spinner animation
+					)
+				}
 
-	// handle keyboard ----------------------------
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q":
-			return m, tea.Quit
-
-			// navigation
-		case "up", "k":
-			if m.ui.cursor > 0 {
-				m.ui.cursor--
 			}
-		case "down", "j":
-			if m.ui.cursor < len(m.endpoints)-1 {
-				m.ui.cursor++
-			}
-		case "tab": // switch bewteen the three sections in the ui
-			m.ui.currentFocus = (m.ui.currentFocus + 1) % 3
-			// user submits a request
-		case "enter", " ":
-			if m.requestState.inProgress == false {
-				m.requestState.inProgress = true
-				selectedEndpoint = m.endpoints[m.ui.cursor]
-				return m, tea.Batch(
-					makeRequest(selectedEndpoint.url, selectedEndpoint.method, globalResponse),
-					m.requestState.spinner.Tick, // add spinner animation
+		case apiResponse:
+			m.requestState.inProgress = false
+			if msg.error != nil {
+				m.requestState.lastResponse.error = msg.error
+			} else {
+				emj := ""
+				if msg.statusCode >= 200 && msg.statusCode <= 299 {
+					emj = "✅"
+				} else {
+					emj = "❌"
+				}
+				m.ui.respmsg = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
+					emj,
+					selectedEndpoint.url,
+					msg.statusCode,
+					msg.responseTime.Seconds(),
+					msg.data,
 				)
 			}
+		case spinner.TickMsg:
+			var cmd tea.Cmd
+			m.requestState.spinner, cmd = m.requestState.spinner.Update(msg)
+			return m, cmd
+
 		}
 
-		// handle when api response ----------------
-	case apiResponse:
-		m.requestState.inProgress = false
-		if msg.error != nil {
-			m.requestState.lastResponse.error = msg.error
-		} else {
-			emj := ""
-			if msg.statusCode >= 200 && msg.statusCode <= 299 {
-				emj = "✅"
-			} else {
-				emj = "❌"
+	} else if m.ui.currentFocus == 1 {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "tab":
+				if m.ui.currentFocus < m.ui.tabCount-1 {
+					m.ui.currentFocus++
+				} else if m.ui.currentFocus == m.ui.tabCount-1 {
+					m.ui.currentFocus = 0
+				}
+
 			}
-			m.ui.respmsg = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
-				emj,
-				selectedEndpoint.url,
-				msg.statusCode,
-				msg.responseTime.Seconds(),
-				msg.data,
-			)
 		}
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.requestState.spinner, cmd = m.requestState.spinner.Update(msg)
-		return m, cmd
+
+	} else {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "tab":
+				if m.ui.currentFocus < m.ui.tabCount-1 {
+					m.ui.currentFocus++
+				} else if m.ui.currentFocus == m.ui.tabCount-1 {
+					m.ui.currentFocus = 0
+				}
+
+			}
+		}
+
 	}
+
 	return m, cmd
 }
 
