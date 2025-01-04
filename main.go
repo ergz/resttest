@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	lipgloss "github.com/charmbracelet/lipgloss"
+	"github.com/go-yaml/yaml"
 )
 
 const url = "https://google.com"
@@ -50,8 +51,13 @@ func initialModel() model {
 	return model{
 		endpoints:    initial_requests,
 		requestState: requestState{inProgress: false, lastResponse: globalResponse, spinner: s},
-		ui:           uiState{currentFocus: 0, selectedIndex: 1, tabCount: 3},
+		ui:           uiState{currentFocus: 0, respmsg: "", selectedIndex: 1, tabCount: 3},
 	}
+}
+
+type apiConfig struct {
+	URLs      map[string]string `yaml:"urls"`
+	Endpoints []apiRequest      `yaml:"endpoints"`
 }
 
 type apiRequest struct {
@@ -95,13 +101,11 @@ type model struct {
 var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Underline(true).Align(lipgloss.Center)
 
-	defaultBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color("#cf6400")).
-				Padding(1)
+	defaultBorderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#6e37a5"))
 
-	focusedBorderStyle = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color("#00ff7f")).
-				Padding(1)
+	focusedBorderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#00ff7f"))
 
 	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF7F")).Bold(true)
 	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#828282"))
@@ -111,6 +115,20 @@ var (
 // TODO: idk if this really needs to be fixed, I think a global response is fine since I am only
 // ever going to have one of these
 var globalResponse = &apiResponse{}
+
+func loadAPIConfig(path string) (*apiConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading the config file %w", err)
+	}
+
+	var cfg apiConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("error trying to parse yaml file, %w", err)
+	}
+
+	return &cfg, nil
+}
 
 func (m model) Init() tea.Cmd {
 	return nil
@@ -252,6 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.WindowSizeMsg:
 			m.ui.width = msg.Width
 			m.ui.height = msg.Height
+			log.Printf("the size of the window has changed: %d X %d", m.ui.width, m.ui.height)
 			return m, nil
 
 		}
@@ -303,39 +322,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 
-	w, h := m.ui.width, m.ui.height
-
-	leftWidth := int(float64(w) * 0.6) // 60% of width
-	rightWidth := w - leftWidth        // remaining 40%
-	rightHeight := h / 2               // split right side in half vertically
-
-	// Create styles for each section with specific dimensions
-	leftStyle := lipgloss.NewStyle().
-		Width(leftWidth).
-		Height(h)
-
-	rightTopStyle := lipgloss.NewStyle().
-		Width(rightWidth).
-		Height(rightHeight)
-
-	rightBottomStyle := lipgloss.NewStyle().
-		Width(rightWidth).
-		Height(rightHeight)
+	mainHeight := m.ui.height - 3
+	leftWidth := m.ui.width/2 - 2
+	rightWidth := m.ui.width - leftWidth - 4
 
 	var panel0, panel1, panel2 string
 	var panel0_content strings.Builder
 
 	var renderedUrl string
 	var renderedMethod string
-	// var renderedName string
-	// create the choices ui
+
 	for i, choice := range m.endpoints {
 		cursor := " "
 		if m.ui.cursor == i {
 			if m.requestState.inProgress {
 				cursor = m.requestState.spinner.View() // show spinner instead of ">"
 			} else {
-				cursor = ">"
+				cursor = "→"
 			}
 			renderedUrl = selectedItemStyle.Render(choice.url)
 			renderedMethod = selectedItemStyle.Render(strings.ToUpper(choice.method))
@@ -356,27 +359,48 @@ func (m model) View() string {
 	panel0_content.WriteString(helpText)
 
 	if m.ui.currentFocus == 0 {
-		panel0 = leftStyle.Render(focusedBorderStyle.Height(h).Render(panel0_content.String()))
+		panel0 = focusedBorderStyle.
+			Height(mainHeight).
+			Width(leftWidth).
+			Render(panel0_content.String())
 	} else {
-		panel0 = leftStyle.Render(defaultBorderStyle.Height(h).Render(panel0_content.String()))
+		panel0 = defaultBorderStyle.
+			Height(mainHeight).
+			Width(leftWidth).
+			Render(panel0_content.String())
 	}
 
 	selectedEndpoint := m.endpoints[m.ui.cursor]
 	if m.ui.currentFocus == 1 {
-		panel1 = rightTopStyle.Render(focusedBorderStyle.Render(selectedEndpoint.name))
+		panel1 = focusedBorderStyle.
+			Height(1).
+			Width(rightWidth).
+			Render(selectedEndpoint.name)
 	} else {
-		panel1 = rightTopStyle.Render(defaultBorderStyle.Render(selectedEndpoint.name))
+		panel1 = defaultBorderStyle.
+			Height(1).
+			Width(rightWidth).
+			Render(selectedEndpoint.name)
 	}
 
+	if m.ui.respmsg == "" {
+		m.ui.respmsg = "run an endpoint to view response"
+	}
 	if m.ui.currentFocus == 2 {
-		panel2 = rightBottomStyle.Render(focusedBorderStyle.Render(m.ui.respmsg))
+		panel2 = focusedBorderStyle.
+			Height(mainHeight - 3).
+			Width(rightWidth).
+			Render(m.ui.respmsg)
 	} else {
-		panel2 = rightBottomStyle.Render(defaultBorderStyle.Render(m.ui.respmsg))
+		panel2 = defaultBorderStyle.
+			Height(mainHeight - 3).
+			Width(rightWidth).
+			Render(m.ui.respmsg)
 	}
 
 	render := lipgloss.JoinVertical(
 		lipgloss.Top,
-		titleStyle.Render("Resttest"),
+		titleStyle.Width(m.ui.width).Render("Resttest"),
 		lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			panel0,
@@ -389,6 +413,13 @@ func main() {
 	f, _ := os.Create("debug.log")
 	log.SetOutput(f)
 	defer f.Close()
+
+	user_endpoints, err := loadAPIConfig("./user/endpoints.yaml")
+	if err != nil {
+		fmt.Errorf("error trying to read the api config, %w", err)
+	}
+
+	fmt.Printf("the value of urls: %s\n", user_endpoints.Endpoints)
 
 	// Then in your code
 	m := initialModel()
