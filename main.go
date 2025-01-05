@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -21,35 +22,13 @@ func initialModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	initial_requests := []apiRequest{
-		{
-			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/1",
-			name:    "get all todos",
-			paths:   []string{"todos"},
-			qparams: nil,
-			body:    nil,
-		},
-		{
-			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/101",
-			name:    "get all todos 2",
-			paths:   nil,
-			qparams: nil,
-			body:    nil,
-		},
-		{
-			method:  "GET",
-			url:     "https://jsonplaceholder.typicode.com/todos/22",
-			name:    "get all todos 3",
-			paths:   nil,
-			qparams: nil,
-			body:    nil,
-		},
+	requests, err := loadAPIConfig("./user/endpoints.yaml")
+	if err != nil {
+		fmt.Errorf("error %w", err)
 	}
 
 	return model{
-		endpoints:    initial_requests,
+		endpoints:    requests.Endpoints,
 		requestState: requestState{inProgress: false, lastResponse: globalResponse, spinner: s},
 		ui:           uiState{currentFocus: 0, respmsg: "", selectedIndex: 1, tabCount: 3},
 	}
@@ -61,12 +40,12 @@ type apiConfig struct {
 }
 
 type apiRequest struct {
-	method  string
-	url     string
-	name    string
-	paths   []string
-	qparams map[string]string
-	body    interface{}
+	Name    string `yaml:"name"`
+	Method  string `yaml:"method"`
+	BaseURL string `yaml:"baseURL"`
+	Path    string `yaml:"path"`
+	fullURL string
+	Body    interface{}
 }
 
 type apiResponse struct {
@@ -127,6 +106,11 @@ func loadAPIConfig(path string) (*apiConfig, error) {
 		return nil, fmt.Errorf("error trying to parse yaml file, %w", err)
 	}
 
+	// create the full url for each endpoint
+	for i := range cfg.Endpoints {
+		cfg.Endpoints[i].fullURL = constructRequest(cfg.Endpoints[i])
+	}
+
 	return &cfg, nil
 }
 
@@ -140,8 +124,10 @@ func parseRequest(line string) {
 }
 
 // TODO: implenent a function to construc actual url we hit with the tool
-func constructRequest(endpoint string, paths []string, qparams map[string]string) {
+func constructRequest(reqConfig apiRequest) string {
+	fullURL := path.Join(reqConfig.BaseURL, reqConfig.Path)
 
+	return fullURL
 }
 
 func makeRequest(endpoint string, method string, gresp *apiResponse) tea.Cmd {
@@ -237,7 +223,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.requestState.inProgress = true
 					selectedEndpoint = m.endpoints[m.ui.cursor]
 					return m, tea.Batch(
-						makeRequest(selectedEndpoint.url, selectedEndpoint.method, globalResponse),
+						makeRequest(selectedEndpoint.fullURL, selectedEndpoint.Method, globalResponse),
 						m.requestState.spinner.Tick, // add spinner animation
 					)
 				}
@@ -256,7 +242,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.ui.respmsg = fmt.Sprintf("%s %s Responded with [%d] in %.2fs - %s",
 					emj,
-					selectedEndpoint.url,
+					selectedEndpoint.fullURL,
 					msg.statusCode,
 					msg.responseTime.Seconds(),
 					msg.data,
@@ -340,14 +326,14 @@ func (m model) View() string {
 			} else {
 				cursor = "→"
 			}
-			renderedUrl = selectedItemStyle.Render(choice.url)
-			renderedMethod = selectedItemStyle.Render(strings.ToUpper(choice.method))
+			renderedUrl = selectedItemStyle.Render(choice.fullURL)
+			renderedMethod = selectedItemStyle.Render(strings.ToUpper(choice.Method))
 			// renderedName = selectedItemStyle.Render(choice.name)
 			// rightVal = choice.name
 
 		} else {
-			renderedUrl = itemStyle.Render(choice.url)
-			renderedMethod = itemStyle.Render(strings.ToUpper(choice.method))
+			renderedUrl = itemStyle.Render(choice.fullURL)
+			renderedMethod = itemStyle.Render(strings.ToUpper(choice.Method))
 			// renderedName = itemStyle.Render(choice.name)
 		}
 
@@ -375,12 +361,12 @@ func (m model) View() string {
 		panel1 = focusedBorderStyle.
 			Height(1).
 			Width(rightWidth).
-			Render(selectedEndpoint.name)
+			Render(selectedEndpoint.Name)
 	} else {
 		panel1 = defaultBorderStyle.
 			Height(1).
 			Width(rightWidth).
-			Render(selectedEndpoint.name)
+			Render(selectedEndpoint.Name)
 	}
 
 	if m.ui.respmsg == "" {
@@ -419,7 +405,9 @@ func main() {
 		fmt.Errorf("error trying to read the api config, %w", err)
 	}
 
-	fmt.Printf("the value of urls: %s\n", user_endpoints.Endpoints)
+	first_endpoint := user_endpoints.Endpoints[0]
+	full_url := constructRequest(first_endpoint)
+	fmt.Println(full_url)
 
 	// Then in your code
 	m := initialModel()

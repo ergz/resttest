@@ -1,6 +1,7 @@
 urls:
   production: &production "https://jsonplaceholder.typicode.com"
   staging: &staging "https://jsonplaceholder.typicode.com"
+  dev: &dev ""
 
 endpoints:
   - name: Get all users 
@@ -9,8 +10,22 @@ endpoints:
     path: "todos/1"
 
   - name: Get all users two 
-    method: GET 
+    method: GET
+    baseURL: *staging
+    path: "todos/133"
+
+  - name: Get all users two 
+    method: POST
     baseURL: *production
     path: "todos/133"
 
+  - name: Get all users two 
+    method: GET
+    baseURL: *staging
+    path: "todos/133"
+
+  - name: Get all users two 
+    method: POST
+    baseURL: *production
+    path: "todos/133"
 
