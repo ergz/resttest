@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -15,8 +14,6 @@ import (
 	lipgloss "github.com/charmbracelet/lipgloss"
 	"github.com/go-yaml/yaml"
 )
-
-const url = "https://google.com"
 
 func initialModel() model {
 	s := spinner.New()
@@ -125,7 +122,7 @@ func parseRequest(line string) {
 
 // TODO: implenent a function to construc actual url we hit with the tool
 func constructRequest(reqConfig apiRequest) string {
-	fullURL := path.Join(reqConfig.BaseURL, reqConfig.Path)
+	fullURL := fmt.Sprintf("%s/%s", reqConfig.BaseURL, reqConfig.Path)
 
 	return fullURL
 }
@@ -145,8 +142,10 @@ func makeRequest(endpoint string, method string, gresp *apiResponse) tea.Cmd {
 		}
 
 		log.Println("DEBUG START------------------")
+		log.Println("")
 		log.Printf("endpoint: %s", endpoint)
 		log.Printf("method: %s", method)
+		log.Println("")
 		log.Println("DEBUG START------------------")
 
 		startTime := time.Now()
